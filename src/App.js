@@ -168,6 +168,7 @@ function App() {
 
   const { login, result, error } = useMsalAuthentication("redirect");
   const { instance, accounts, inProgress } = useMsal();
+  console.log(accounts)
 
   function openTimeItem(editid) {
     setPanel({ open: true, editid })
@@ -277,7 +278,7 @@ function App() {
               <Icon iconName="TimeEntry" style={{ fontSize: 23, margin: '0 15px', color: 'deepskyblue' }} />
             </div>
             <div className="logo" style={{ padding: "8px 0" }}>
-              <div style={{ fontSize: 15 }}>Time Recording Assistant</div>
+              <div style={{ fontSize: 15 }}>Time Recording Assistant, <b>welcome {accounts && accounts.length > 0 ? accounts[0].name : "unknown"}</b></div>
             </div>
             <input className="menu-btn" type="checkbox" id="menu-btn" />
             <label className="menu-icon" htmlFor="menu-btn"><span className="navicon"></span></label>
