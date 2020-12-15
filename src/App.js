@@ -12,16 +12,18 @@ import { TagPicker } from 'office-ui-fabric-react/lib/Pickers';
 initializeIcons();
 
 
-function TimeItem({ dismissPanel, _add, projects, item }) {
+function TimeItem({ dismissPanel, _update, projects, item, idx }) {
 
   const [error, setError] = useState(null)
   console.log(item)
+  console.log(idx)
 
   const [input, handleInputChange] = useState({
     'hours': item ? item.hours : 1,
     'status': item ? item.status : "complete",
     'day': item ? item.day : 0,
-    'project': item ? item.project : ""
+    'project': item ? item.project : "",
+    'calId': item && item.calId
   })
 
   function _onChange(e, val) {
@@ -31,38 +33,8 @@ function TimeItem({ dismissPanel, _add, projects, item }) {
     })
   }
 
-  function add() {
-    _add(input)
-    //setError(null)
-    //_fetchit('/api/store/inventory', 'POST', {}, result._id ? { _id: result._id, ...input } : input).then(succ => {
-    //  console.log(`created success : ${JSON.stringify(succ)}`)
-    //navTo("/MyBusiness")
-    //dismissPanel()
-    //}, err => {
-    //  console.error(`created failed : ${err}`)
-    //  setError(`created failed : ${err}`)
-    //})
-  }
-  /*
-    const testTags = [
-      'Alpha Project',
-      'Beta Project',
-      'Gamma Project',
-      'Delta Project',
-      'Epsilon Project',
-      'Zeta Project',
-      'Eta Project',
-      'Theta Project',
-      'Iota Project',
-      'Kappa Project',
-      'Lambda Project',
-      'Mu Project',
-      'Nu Project',
-      'Xi Project'
-    ].map(item => ({ key: item, name: item }));
-  */
   const testTags = projects.map(item => ({ key: item, name: item }));
-  console.log(testTags)
+  //console.log(testTags)
 
   function onItemSelected(i) {
     _onChange({ target: { name: "project" } }, i.name)
@@ -105,14 +77,19 @@ function TimeItem({ dismissPanel, _add, projects, item }) {
 
       <Dropdown label="Assosiated with outlook" defaultSelectedKey={input.status} onChange={(e, i) => _onChange({ target: { name: "status" } }, i.key)} options={[{ key: "title", text: "Title includes" }, { key: "category", text: "Catorgorised" }]} />
 
+      <Stack.Item>
+        <Label>Outlook Id</Label>
+        {input.calId}
+      </Stack.Item>
       {error &&
         <MessageBar messageBarType={MessageBarType.error} isMultiline={false} truncated={true}>
           {error}
         </MessageBar>
       }
       <Stack horizontal tokens={{ childrenGap: 5 }}>
-        <PrimaryButton text="Save" onClick={add} allowDisabledFocus disabled={false} />
+        <PrimaryButton text="Save" onClick={() => _update(idx, input)} allowDisabledFocus disabled={false} />
         <DefaultButton text="Cancel" onClick={dismissPanel} allowDisabledFocus disabled={false} />
+        {idx >= 0 && <DefaultButton text="Delete" onClick={() => _update(idx, null)} allowDisabledFocus disabled={false} />}
       </Stack>
 
     </Stack>
@@ -166,9 +143,9 @@ function App() {
     items: []
   })
 
-  const { login, result, error } = useMsalAuthentication("redirect");
-  const { instance, accounts, inProgress } = useMsal();
-  console.log(accounts)
+  useMsalAuthentication("redirect");
+  const { instance, accounts } = useMsal();
+
 
   function openTimeItem(editid) {
     setPanel({ open: true, editid })
@@ -183,17 +160,50 @@ function App() {
   }
 
   function add_in_order(new_val, array) {
-    for (let i = 0; i < array.length; i++) {
-      if (new_val.day <= array[i].day) {
-        return [...array.slice(0, i), new_val, ...array.slice(i)]
+
+    // remove existing item with same calId
+    const existing_idx = new_val.calId ? array.findIndex(i => new_val.calId === i.calId) : -1
+    const items = existing_idx >= 0 ? [...array.slice(0, existing_idx), ...array.slice(existing_idx + 1)] : [...array]
+
+    // add new in order
+    for (let i = 0; i < items.length; i++) {
+      if (new_val.day <= items[i].day) {
+        return [...items.slice(0, i), new_val, ...items.slice(i)]
       }
     }
-    return [...array, new_val]
+    return [...items, new_val]
   }
 
-  function add(item) {
-    additems([item])
+  function add(idx, item) {
+
+    setEntries((prevState) => {
+      if (idx >= 0) { // editing exiting item
+        if (item) { //changing
+          return recalcGroups([...prevState.items.slice(0, idx), item, ...prevState.items.slice(idx + 1)], prevState.groups)
+        } else { // deleting
+          return recalcGroups([...prevState.items.slice(0, idx), ...prevState.items.slice(idx + 1)], prevState.groups)
+        }
+      } else {
+        return recalcGroups(add_in_order(item, [...prevState.items]), prevState.groups)
+      }
+    })
     dismissPanel()
+  }
+
+  function recalcGroups(items, currentGroups) {
+
+    const hours = items.reduce((a, i) => a + i.hours, 0)
+    const groups = items.reduce((g, i) => {
+      g[i.day].count++; g[i.day].hours += i.hours
+      for (let a = i.day + 1; a < g.length; a++) {
+        g[a].startIndex++
+      }
+      return g
+    }, currentGroups.map(g => { return { ...g, startIndex: 0, count: 0, hours: 0 } }))
+
+    //console.log('groups')
+    //console.log(groups)
+    return { items, groups, hours }
   }
 
   function additems(newitems) {
@@ -203,30 +213,15 @@ function App() {
     setEntries((prevState) => {
 
       let items = [...prevState.items]
-      let newhours = 0
+
       for (const n of newitems) {
         ps.add(n.project)
-        newhours += n.hours
         items = add_in_order(n, items)
       }
-
-      //console.log(items)
-
-      let groups = newitems.reduce((g, i) => {
-        g[i.day].count++; g[i.day].hours += i.hours
-        for (let a = i.day + 1; a < g.length; a++) {
-          g[a].startIndex++
-        }
-        //console.log(g)
-        return g
-
-
-      }, [...prevState.groups])
-
+      console.log('items')
       console.log(items)
-      console.log(groups)
-      return { items, groups, hours: prevState.hours + newhours }
 
+      return recalcGroups(items, prevState.groups)
     })
     setProjects(Array.from(ps))
   }
@@ -250,9 +245,10 @@ function App() {
             .then(data => {
 
               additems(data.events.map(i => {
-                const d = new Date(i.startTime.substr(6, 4), i.startTime.substr(3, 2) - 1, i.startTime.substr(0, 2), 1)
+                const d = new Date(i.startTime) //new Date(i.startTime.substr(6, 4), i.startTime.substr(3, 2) - 1, i.startTime.substr(0, 2), 1)
                 console.log(`adding ${i.subject}  -- ${i.startTime} -- ${d.getDay()} -- ${i.durationInMinutes}`)
                 return {
+                  calId: i.iCalUId,
                   project: i.subject,
                   hours: Number.parseFloat((i.durationInMinutes / 60).toFixed(1)),
                   day: d.getDay(),
@@ -265,6 +261,18 @@ function App() {
         }
       })
     }
+  }
+
+  function submitts() {
+    //setError(null)
+    //_fetchit('/api/store/inventory', 'POST', {}, result._id ? { _id: result._id, ...input } : input).then(succ => {
+    //  console.log(`created success : ${JSON.stringify(succ)}`)
+    //navTo("/MyBusiness")
+    //dismissPanel()
+    //}, err => {
+    //  console.error(`created failed : ${err}`)
+    //  setError(`created failed : ${err}`)
+    //})
   }
 
   return (
@@ -283,10 +291,10 @@ function App() {
             <input className="menu-btn" type="checkbox" id="menu-btn" />
             <label className="menu-icon" htmlFor="menu-btn"><span className="navicon"></span></label>
             <ul className="menu">
-              <li><a >Time Entry</a></li>
-              <li><a >My Projects</a></li>
-              <li><a >My Analytics</a></li>
-              <li><a onClick={() => instance.logout()}>Logout</a></li>
+              <li style={{ cursor: "pointer" }}><a  >Time Entry</a></li>
+              <li style={{ cursor: "pointer" }}><a >My Projects</a></li>
+              <li style={{ cursor: "pointer" }}><a >My Analytics</a></li>
+              <li style={{ cursor: "pointer" }}><a onClick={() => instance.logout()}>Logout</a></li>
             </ul>
           </nav>
 
@@ -304,7 +312,7 @@ function App() {
               closeButtonAriaLabel="Close"
             >
               {panel.open &&
-                <TimeItem dismissPanel={dismissPanel} _add={add} item={panel.item} projects={projects} />
+                <TimeItem dismissPanel={dismissPanel} _update={add} {...panel} projects={projects} />
               }
             </Panel>
 
@@ -351,11 +359,11 @@ function App() {
                 </span>
                   </div>} />
               }}
-              onActiveItemChanged={(i) => setPanel({ open: true, item: i })}
+              onActiveItemChanged={(item, idx) => setPanel({ open: true, item, idx })}
               compact={false}
             />
 
-            <ProgressIndicator label={`${Number.parseFloat((entries.hours / 40) * 100).toFixed(0)}% Complete`} percentComplete={entries.hours / 40} barHeight={entries.hours} />
+            <ProgressIndicator label={`${Number.parseFloat((entries.hours / 40) * 100).toFixed(0)}% Complete (${entries.hours} hrs)`} percentComplete={entries.hours / 40} barHeight={entries.hours} />
 
             <Stack.Item align="end">
               <DefaultButton text="Submit" onClick={_sumbit} allowDisabledFocus disabled={entries.hours < 40} />
