@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import './App.css';
 
 import { useMsal, useMsalAuthentication, AuthenticatedTemplate } from "@azure/msal-react";
-import { Spinner, Label, ProgressIndicator, SelectionMode, GroupHeader, DetailsList, Fabric, MessageBar, MessageBarType, PrimaryButton, Stack, DefaultButton, Separator, Dropdown, Slider, Panel, PanelType, } from '@fluentui/react'
+import { TextField, Spinner, Label, ProgressIndicator, SelectionMode, GroupHeader, DetailsList, Fabric, MessageBar, MessageBarType, PrimaryButton, Stack, DefaultButton, Separator, Dropdown, Slider, Panel, PanelType, } from '@fluentui/react'
 import { Icon } from '@fluentui/react/lib/Icon';
 import { initializeIcons } from '@fluentui/react/lib/Icons';
 import { mergeStyles } from 'office-ui-fabric-react/lib/Styling';
@@ -12,7 +12,7 @@ import { TagPicker } from 'office-ui-fabric-react/lib/Pickers';
 initializeIcons();
 
 
-function TimeItem({ dismissPanel, _update, projects, item, idx }) {
+function TimeItem({ dismissPanel, _update, projects, categories, item, idx }) {
 
   const [error, setError] = useState(null)
   console.log(item)
@@ -20,7 +20,7 @@ function TimeItem({ dismissPanel, _update, projects, item, idx }) {
 
   const [input, handleInputChange] = useState({
     'hours': item ? item.hours : 1,
-    'status': item ? item.status : "complete",
+    'association_type': item && item.categories && item.categories.length > 0 ? 1 : 0,
     'day': item ? item.day : 0,
     'project': item ? item.project : "",
     'calId': item && item.calId
@@ -75,12 +75,37 @@ function TimeItem({ dismissPanel, _update, projects, item, idx }) {
         snapToStep
       />
 
-      <Dropdown label="Assosiated with outlook" defaultSelectedKey={input.status} onChange={(e, i) => _onChange({ target: { name: "status" } }, i.key)} options={[{ key: "title", text: "Title includes" }, { key: "category", text: "Catorgorised" }]} />
+      <Label>Outlook Assosiation</Label>
+      <Stack tokens={{ childrenGap: 15, padding: 10 }} styles={{ root: { border: "1px solid" } }}>
 
+        <Dropdown label="Always assosiate project when" defaultSelectedKey={input.association_type} onChange={(e, i) => _onChange({ target: { name: "association_type" } }, i.key)} options={[{ key: 0, text: "Subject includes" }, { key: 1, text: "Catorgorised as" }]} />
+        {input.association_type === 0 ?
+          <TextField label="Subject" iconProps={{ iconName: 'Calendar' }} placeholder={input.subject} />
+          :
+          <Label >Categories</Label>,
+          <TagPicker
+            label="Cat"
+            removeButtonAriaLabel="Remove"
+            onResolveSuggestions={(filterText, tagList) => {
+              return filterText
+                ? categories.map(item => ({ key: item, name: item })).filter(tag => tag.name.toLowerCase().indexOf(filterText.toLowerCase()) >= 0)
+                : []
+            }}
+            getTextFromItem={(item) => item.name}
+            pickerSuggestionsProps={{
+              suggestionsHeaderText: 'Suggested categories',
+              noResultsFoundText: 'No projects found',
+            }}
+            itemLimit={2}
+          />
+        }
+      </Stack>
       <Stack.Item>
         <Label>Outlook Id</Label>
         {input.calId}
       </Stack.Item>
+
+
       {error &&
         <MessageBar messageBarType={MessageBarType.error} isMultiline={false} truncated={true}>
           {error}
@@ -116,19 +141,10 @@ function App() {
   const [importcal, setImportcal] = React.useState(0)
   const [projects, setProjects] = React.useState([
     'Alpha Project',
-    'Beta Project',
-    'Gamma Project',
-    'Delta Project',
-    'Epsilon Project',
-    'Zeta Project',
-    'Eta Project',
-    'Theta Project',
-    'Iota Project',
-    'Kappa Project',
-    'Lambda Project',
-    'Mu Project',
-    'Nu Project',
-    'Xi Project'])
+    'Beta Project'])
+
+  const [categories, setCategories] = React.useState([])
+
   const [entries, setEntries] = React.useState({
     hours: 0,
     groups: [
@@ -209,13 +225,20 @@ function App() {
   function additems(newitems) {
 
     const ps = new Set(projects)
+    const cs = new Set(categories)
 
     setEntries((prevState) => {
 
       let items = [...prevState.items]
 
       for (const n of newitems) {
-        ps.add(n.project)
+        if (n.project) {
+          ps.add(n.project)
+        }
+        if (n.categories) {
+          for (let cat of n.categories)
+            cs.add(cat)
+        }
         items = add_in_order(n, items)
       }
       console.log('items')
@@ -224,6 +247,7 @@ function App() {
       return recalcGroups(items, prevState.groups)
     })
     setProjects(Array.from(ps))
+    setCategories(Array.from(cs))
   }
 
   function _callAPI() {
@@ -249,9 +273,10 @@ function App() {
                 console.log(`adding ${i.subject}  -- ${i.startTime} -- ${d.getDay()} -- ${i.durationInMinutes}`)
                 return {
                   calId: i.iCalUId,
-                  project: i.subject,
+                  project: i.project,
                   hours: Number.parseFloat((i.durationInMinutes / 60).toFixed(1)),
                   day: d.getDay(),
+                  subject: i.subject,
                   categories: i.categories
                 }
               })//.filter(f => f.day >= 0 && f.day <= 4)
@@ -312,7 +337,7 @@ function App() {
               closeButtonAriaLabel="Close"
             >
               {panel.open &&
-                <TimeItem dismissPanel={dismissPanel} _update={add} {...panel} projects={projects} />
+                <TimeItem dismissPanel={dismissPanel} _update={add} {...panel} projects={projects} categories={categories} />
               }
             </Panel>
 
@@ -334,15 +359,29 @@ function App() {
               groups={entries.groups}
               columns={[
                 { key: 'day', name: `Week (${entries.hours} hrs)`, minWidth: 100, maxWidth: 200, isResizable: false },
-                { key: 'project', name: 'Project', fieldName: 'project', minWidth: 100, maxWidth: 200, onRender: (i) => <Label>{i.project}</Label> },
+                {
+                  key: 'project', name: 'Project', fieldName: 'project', minWidth: 100, maxWidth: 200, onRender: (i) => {
+                    if (i.project) {
+                      return <Label>{i.project}</Label>
+                    } else {
+                      return <div key={i} className={flexrow}>
+                        <Icon iconName="Warning" className={iconClass} style={{ color: "red" }} />
+                        <div>Add Project</div>
+                      </div>
+                    }
+                  }
+                },
                 { key: 'hours', name: 'Hours', fieldName: 'hours', minWidth: 100, maxWidth: 200, onRender: (i) => <Label>{i.hours} hrs</Label> },
                 {
-                  key: 'cat', name: 'Outlook Categories', fieldName: 'categories', minWidth: 100, maxWidth: 200, onRender: (i) =>
-                    <div>{i.categories && i.categories.map((c, i) =>
-                      <div key={i} className={flexrow}>
-                        <Icon iconName="Tag" className={iconClass} style={{ color: "red" }} />
-                        <div>{c}</div>
-                      </div>)}
+                  key: 'cat', name: 'Outlook entry', minWidth: 100, maxWidth: 200, onRender: (i) =>
+                    <div>
+                      {i.subject}
+                      {i.categories && i.categories.map((c, i) =>
+                        <div key={i} className={flexrow}>
+                          <Icon iconName="Tag" className={iconClass} style={{ color: "red" }} />
+                          <div>{c}</div>
+                        </div>)
+                      }
                     </div>
                 }
               ]}
