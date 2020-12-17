@@ -12,34 +12,37 @@ import { TagPicker } from 'office-ui-fabric-react/lib/Pickers';
 initializeIcons();
 
 
-function TimeItem({ dismissPanel, _update, projects, categories, item, idx }) {
+function TimeItem({ dismissPanel, _update, projects, outlook_categories, item, idx }) {
 
   const [error, setError] = useState(null)
-  console.log(item)
   console.log(idx)
+  console.log(item)
+  console.log(projects)
+  console.log(outlook_categories)
 
   const [input, handleInputChange] = useState({
     'hours': item ? item.hours : 1,
     'association_type': item && item.categories && item.categories.length > 0 ? 1 : 0,
     'day': item ? item.day : 0,
     'project': item ? item.project : "",
-    'calId': item && item.calId
+    'calId': item && item.calId,
+    'subject': item ? item.subject : "",
+    'categories': item ? item.categories : []
   })
 
   function _onChange(e, val) {
+    console.log(`onChange ${val}`)
     handleInputChange({
       ...input,
       [e.target.name]: val
     })
   }
 
-  const testTags = projects.map(item => ({ key: item, name: item }));
-  //console.log(testTags)
-
-  function onItemSelected(i) {
+  function onProjectSelected(i) {
     _onChange({ target: { name: "project" } }, i.name)
     return i
   }
+
   return (
     <Stack tokens={{ childrenGap: 15 }} >
 
@@ -52,7 +55,7 @@ function TimeItem({ dismissPanel, _update, projects, categories, item, idx }) {
         removeButtonAriaLabel="Remove"
         onResolveSuggestions={(filterText, tagList) => {
           return filterText
-            ? testTags.filter(tag => tag.name.toLowerCase().indexOf(filterText.toLowerCase()) >= 0)
+            ? projects.map(item => ({ key: item, name: item })).filter(tag => tag.name.toLowerCase().indexOf(filterText.toLowerCase()) >= 0)
             : []
         }}
         getTextFromItem={(item) => item.name}
@@ -61,7 +64,7 @@ function TimeItem({ dismissPanel, _update, projects, categories, item, idx }) {
           noResultsFoundText: 'No projects found',
         }}
         itemLimit={2}
-        onItemSelected={onItemSelected}
+        onItemSelected={onProjectSelected}
       />
 
       <Slider
@@ -81,23 +84,29 @@ function TimeItem({ dismissPanel, _update, projects, categories, item, idx }) {
         <Dropdown label="Always assosiate project when" defaultSelectedKey={input.association_type} onChange={(e, i) => _onChange({ target: { name: "association_type" } }, i.key)} options={[{ key: 0, text: "Subject includes" }, { key: 1, text: "Catorgorised as" }]} />
         {input.association_type === 0 ?
           <TextField label="Subject" iconProps={{ iconName: 'Calendar' }} placeholder={input.subject} />
-          :
-          <Label >Categories</Label>,
-          <TagPicker
-            label="Cat"
-            removeButtonAriaLabel="Remove"
-            onResolveSuggestions={(filterText, tagList) => {
-              return filterText
-                ? categories.map(item => ({ key: item, name: item })).filter(tag => tag.name.toLowerCase().indexOf(filterText.toLowerCase()) >= 0)
-                : []
-            }}
-            getTextFromItem={(item) => item.name}
-            pickerSuggestionsProps={{
-              suggestionsHeaderText: 'Suggested categories',
-              noResultsFoundText: 'No projects found',
-            }}
-            itemLimit={2}
-          />
+          : [
+            <Label key="cat" >Categories</Label>,
+            <TagPicker
+              key="Cat"
+              removeButtonAriaLabel="Remove"
+              inputProps={{ defaultVisibleValue: input.categories.length > 0 ? input.categories[0] : "" }}
+              onResolveSuggestions={(filterText, tagList) => {
+                return filterText
+                  ? outlook_categories.map(item => ({ key: item, name: item })).filter(tag => tag.name.toLowerCase().indexOf(filterText.toLowerCase()) >= 0)
+                  : []
+              }}
+              getTextFromItem={(item) => item.name}
+              pickerSuggestionsProps={{
+                suggestionsHeaderText: 'Suggested outlook categories',
+                noResultsFoundText: 'No categories found',
+              }}
+              itemLimit={2}
+              onItemSelected={(i) => {
+                _onChange({ target: { name: "categories" } }, [i.name])
+                return i
+              }}
+            />
+          ]
         }
       </Stack>
       <Stack.Item>
@@ -140,8 +149,8 @@ function App() {
   const [panel, setPanel] = React.useState({ open: false })
   const [importcal, setImportcal] = React.useState(0)
   const [projects, setProjects] = React.useState([
-    'Alpha Project',
-    'Beta Project'])
+    'Project ACE',
+    'Project Lighthouse'])
 
   const [categories, setCategories] = React.useState([])
 
@@ -208,14 +217,17 @@ function App() {
 
   function recalcGroups(items, currentGroups) {
 
-    const hours = items.reduce((a, i) => a + i.hours, 0)
+    const hours = items.reduce((a, i) => a + (i.project ? i.hours : 0), 0)
     const groups = items.reduce((g, i) => {
+      if (!i.project) {
+        g[i.day].issue = true
+      }
       g[i.day].count++; g[i.day].hours += i.hours
       for (let a = i.day + 1; a < g.length; a++) {
         g[a].startIndex++
       }
       return g
-    }, currentGroups.map(g => { return { ...g, startIndex: 0, count: 0, hours: 0 } }))
+    }, currentGroups.map(g => { return { ...g, startIndex: 0, count: 0, hours: 0, issue: false } }))
 
     //console.log('groups')
     //console.log(groups)
@@ -311,7 +323,7 @@ function App() {
               <Icon iconName="TimeEntry" style={{ fontSize: 23, margin: '0 15px', color: 'deepskyblue' }} />
             </div>
             <div className="logo" style={{ padding: "8px 0" }}>
-              <div style={{ fontSize: 15 }}>Time Recording Assistant, <b>welcome {accounts && accounts.length > 0 ? accounts[0].name : "unknown"}</b></div>
+              <div style={{ fontSize: 15 }}>Time Assistant for <b>{accounts && accounts.length > 0 ? accounts[0].name : "unknown"}</b></div>
             </div>
             <input className="menu-btn" type="checkbox" id="menu-btn" />
             <label className="menu-icon" htmlFor="menu-btn"><span className="navicon"></span></label>
@@ -337,7 +349,7 @@ function App() {
               closeButtonAriaLabel="Close"
             >
               {panel.open &&
-                <TimeItem dismissPanel={dismissPanel} _update={add} {...panel} projects={projects} categories={categories} />
+                <TimeItem dismissPanel={dismissPanel} _update={add} {...panel} projects={projects} outlook_categories={categories} />
               }
             </Panel>
 
@@ -393,6 +405,9 @@ function App() {
                 showEmptyGroups: true,
                 onRenderHeader: (item) => <GroupHeader onRenderGroupHeaderCheckbox={false} {...item} onRenderTitle={(i) =>
                   <div className='ms-GroupHeader-title' role="gridcell">
+                    {i.group.issue &&
+                      <Icon iconName="Warning" className={iconClass} style={{ color: "red" }} />
+                    }
                     <span>{i.group.name}  ({i.group.hours} hrs
                     {i.group.hasMoreData && '+'})
                 </span>
